@@ -1,0 +1,405 @@
+'http://www.iro.umontreal.ca/labs/infographie/papers/Clavet-2005-PVFS/pvfs.pdf
+
+    Dim Rij As Single
+
+    Dim I As Long
+    Dim J As Long
+    Dim II As Long
+
+    Dim Deform As Single
+
+    Dim ELAsticity As Single
+    Dim ElaXJ As Single
+    Dim ElaYJ As Single
+    Dim TElaXI As Single
+    Dim TElaYI As Single
+
+    Dim Dens As Single
+    Dim DensNear As Single
+    Dim Press As Single
+    Dim PressNear As Single
+
+    Dim q As Single
+    Dim Omq As Single
+
+
+    Dim Displace As Single
+    Dim dX As Single
+    Dim dY As Single
+    Dim NdX As Single
+    Dim NdY As Single
+
+    Dim NPm1 As Long
+
+    Dim MUL As Single
+
+    Dim CurPAIR As Long
+
+    Dim dVX As Single
+    Dim dVY As Single
+    Dim UU As Single
+    Dim UUQ As Single
+    Dim ViscXJ As Single
+    Dim ViscYJ As Single
+    Dim K As Single
+
+    Dim IGridX As Long
+    Dim IGridY As Long
+
+    Dim OldCellX As Long
+    Dim CurCellX As Long
+    Dim OldCellY As Long
+    Dim CurCellY As Long
+
+    Dim Elem As Variant
+    Dim IC As Long
+    
+        Dim CX2 As Long
+    Dim CY2 As Long
+    Dim CX As Long
+    Dim CY As Long
+    Dim CXm1 As Long
+    Dim CYm1 As Long
+    Dim CXp1 As Long
+    Dim CYp1 As Long
+    
+
+    NPm1 = NP - 1
+
+    ' apply gravity (MOVED IN NEXT CYCLE BECAUSE aPPLYvISCOSITY iS iNSIDE pair lOOP)
+    'For I = 1 To NP
+    '    With P(I)
+    '        'MUL = IIf(I Mod 2 = 0, 2, 1)
+    '        .Vy = .Vy + GY * dT    '* MUL
+    '        .Vx = .Vx + GX * dT    '* MUL
+    '        .Vx = .Vx * AirResistence
+    '        .Vy = .Vy * AirResistence
+    '    End With
+    'Next
+
+    'modify velocities with pairwise viscosity impulses
+    '   AAAApplyViscosity
+    'Put inside for speed up
+
+
+    For I = 1 To NP
+        With P(I)
+
+            '----------------------- MOVED HERE FROM Bottom
+            .Vx = (.X - .OldX) * OdDT    '/ dT
+            .Vy = (.Y - .OldY) * OdDT    '/ dT
+            '-----------------------
+
+            '-----------------------
+            .Vy = .Vy + GY * dT
+            .Vx = .Vx + GX * dT
+            .Vx = .Vx * AirResistence
+            .Vy = .Vy * AirResistence
+            '-----------------------
+
+            .OldX = .X
+            .OldY = .Y
+            .X = .X + dT * .Vx
+            .Y = .Y + dT * .Vy
+            .XGrid = .X \ H
+            .YGrid = .Y \ H
+
+            .MoveX = 0
+            .MoveY = 0
+
+            '-----------------------
+            .Density = 0
+            .DensityNEAR = 0
+            '------------------------
+
+
+            '------------------------CELLS
+            OldCellX = .OldX \ Hcell
+            OldCellY = .OldY \ Hcell
+            CurCellX = .X \ Hcell
+            CurCellY = .Y \ Hcell
+
+            If CurCellX <> OldCellX Or CurCellY <> OldCellY Then
+
+                Cells(CurCellX, CurCellY).Add I
+                IC = Cells(OldCellX, OldCellY).Count
+                If IC > 0 Then
+                J = 1
+                Do
+                    If I = Cells(OldCellX, OldCellY).Item(J) Then Cells(OldCellX, OldCellY).Remove (J): IC = IC - 1
+                    J = J + 1
+                Loop While J <= IC
+                End If
+            End If
+            '--------------------------
+
+        End With
+    Next
+
+
+    Dens = 0
+    DensNear = 0
+    '    For I = 1 To NP
+    '        With P(I)
+    '            .Density = 0
+    '            .DensityNEAR = 0
+    '        End With
+    '    Next I
+
+
+    '****************************************************************************************
+    '**********************       PAIRS
+    N_Springs = 0
+
+
+For CX2 = 1 To MaxX \ Hcell
+CXp1 = CX2 + 1
+CXm1 = CX2 - 1
+For CY2 = 1 To MaxY \ Hcell
+CYp1 = CY2 + 1
+CYm1 = CY2 - 1
+
+For CX = CXm1 To CXp1
+For CY = CYm1 To CYp1
+
+
+                    Rij = ptDistanceSQUARED(I, J, dX, dY)
+
+                    If Rij <= HSQ Then    ' And Rij > 0 Then
+
+
+
+                        N_Springs = N_Springs + 1
+
+                        Rij = Sqr(Rij)
+
+                        CurPAIR = IJtoPairIndex(I, J)
+                        If CurPAIR = 0 Then
+                            CurPAIR = ADDPair(I, J)
+                            'PAIR(CurPAIR).SpringRestL =  Rij
+                        End If
+
+                        With PAIR(CurPAIR)
+
+                            '.Rij = Rij
+                            '.DistX = dX
+                            '.DistY = dY
+                            NdX = dX / Rij
+                            NdY = dY / Rij
+                            .NrmlzdDX = NdX
+                            .NrmlzdDY = NdY
+
+
+                            q = Rij / H
+                            Omq = 1 - q
+
+                            '*********** Viscosity ***************************
+                            dVX = (P(I).Vx - P(J).Vx)
+                            dVY = (P(I).Vy - P(J).Vy)
+
+                            UUQ = (dVX * dVX + dVY * dVY)
+                            UU = Sqr(UUQ)
+
+                            'DT2 because compute Result for MoveX not VX
+                            K = dT2 * (Omq) * (VISCOLinear * UU + VISCOSquared * UUQ)
+
+                            ViscXJ = K * NdX
+                            ViscYJ = K * NdY
+
+                            P(J).MoveX = P(J).MoveX + ViscXJ
+                            P(J).MoveY = P(J).MoveY + ViscYJ
+
+                            P(I).MoveX = P(I).MoveX - ViscXJ
+                            P(I).MoveY = P(I).MoveY - ViscYJ
+
+                            '*****************************************
+
+
+                            '*********** PRESSURE DENSITY
+
+
+                            .OneMinusQ1 = Omq
+                            .OneMinusQ2 = Omq * Omq
+                            .OneMinusQ3 = .OneMinusQ2 * Omq
+
+                            P(I).Density = P(I).Density + .OneMinusQ2        '(1)
+                            P(I).DensityNEAR = P(I).DensityNEAR + .OneMinusQ3  '(4)
+
+                            P(J).Density = P(J).Density + .OneMinusQ2
+                            P(J).DensityNEAR = P(J).DensityNEAR + .OneMinusQ3
+                            '****************************************
+
+
+
+                            '**** Spring Adjustment     ALGO (4)
+                            'if there is no spring i j
+                            'If .SpringRestL <= 0 Then .SpringRestL = SpringL    ' Rij 'H     'Rij
+                            '
+                            Deform = KPlastYield * .SpringRestL
+                            If Rij > SpringL + Deform Then
+                                '  stretch
+                                .SpringRestL = .SpringRestL + KPlasticity * (Rij - SpringL - Deform)
+                            ElseIf Rij < SpringL - Deform Then
+                                ' compress
+                                .SpringRestL = .SpringRestL - KPlasticity * (SpringL - Deform - Rij)
+                            End If
+                            '*************************
+
+
+                            '********************* Spring displacements    ALGO  (3)
+                            If .SpringRestL <= H And .SpringRestL > 0 Then
+
+                                ELAsticity = KspringELA * (1 - .SpringRestL / H) * (.SpringRestL - Rij)
+
+                                ElaXJ = ELAsticity * NdX
+                                ElaYJ = ELAsticity * NdY
+
+                                P(J).MoveX = P(J).MoveX + ElaXJ
+                                P(J).MoveY = P(J).MoveY + ElaYJ
+
+                                P(I).MoveX = P(I).MoveX - ElaXJ
+                                P(I).MoveY = P(I).MoveY - ElaYJ
+
+                            Else
+                                'Remove Spring
+                                .SpringRestL = 0
+                                .IsPair = False
+                                IJtoPairIndex(I, J) = 0
+                            End If
+                            '*****************************************
+                        End With
+                    Else
+                        'Remove Spring
+                        'PAIR(CurPAIR).SpringRestL = 0
+                        CurPAIR = IJtoPairIndex(I, J)
+                        PAIR(CurPAIR).IsPair = False
+                        IJtoPairIndex(I, J) = 0
+                    End If
+                Else
+                    'Remove Spring
+                    'PAIR(CurPAIR).SpringRestL = 0
+                    CurPAIR = IJtoPairIndex(I, J)
+                    PAIR(CurPAIR).IsPair = False
+                    IJtoPairIndex(I, J) = 0
+                End If
+            Else
+                'Remove Spring
+                'PAIR(CurPAIR).SpringRestL = 0
+                CurPAIR = IJtoPairIndex(I, J)
+                PAIR(CurPAIR).IsPair = False
+                IJtoPairIndex(I, J) = 0
+            End If
+        Next J
+
+    Next
+    '****************************************************************************************
+
+
+
+
+
+    '************************** single Density Relaxation
+    '************************** Algorithm (2)
+
+    ' Moved UP
+    'compute density and near-density
+    '    Dens = 0
+    '    DensNear = 0
+    '
+    '    For I = 1 To NP
+    '        With P(I)
+    '            .Density = 0
+    '            .DensityNEAR = 0
+    '        End With
+    '    Next I
+
+
+    'Moved inside "PAIR" cycle
+    'For I = 1 To Npairs
+    '    With PAIR(I)'
+    '
+    '            If PAIR(I).IsPair Then
+    '
+    '                q = .Rij / H
+    '                Omq = 1 - q
+    '                .OneMinusQ1 = Omq
+    '                .OneMinusQ2 = Omq * Omq
+    '                .OneMinusQ3 = .OneMinusQ2 * Omq
+    '
+    '                P(.I).Density = P(.I).Density + .OneMinusQ2
+    '                P(.I).DensityNEAR = P(.I).DensityNEAR + .OneMinusQ3
+    '
+    '                P(.J).Density = P(.J).Density + .OneMinusQ2
+    '                P(.J).DensityNEAR = P(.J).DensityNEAR + .OneMinusQ3
+    '
+    '            End If'
+    '
+    '        End With
+    '    Next
+
+    For I = 1 To NP
+        'compute pressure and near-pressure
+        With P(I)
+            .Pressure = KStiff * (.Density - RestDensity)   '(2)
+            .PressureNEAR = KNear * .DensityNEAR            '(5)
+        End With
+    Next
+
+    ' apply displacements
+    For II = 1 To Npairs
+
+        With PAIR(II)
+
+            If PAIR(II).IsPair Then
+
+                I = .I
+                J = .J
+
+                'Press = P(J).Pressure
+                'PressNear = P(J).PressureNEAR
+                'Press = P(I).Pressure
+                'PressNear = P(I).PressureNEAR
+
+                Press = (P(I).Pressure + P(J).Pressure)    ' * 0.5
+                PressNear = (P(I).PressureNEAR + P(J).PressureNEAR)    '* 0.5
+
+                Displace = dT2 * (Press * .OneMinusQ1 + PressNear * .OneMinusQ2)
+
+                dX = Displace * .NrmlzdDX
+                dY = Displace * .NrmlzdDY
+
+                P(J).MoveX = P(J).MoveX + dX
+                P(J).MoveY = P(J).MoveY + dY
+
+                P(I).MoveX = P(I).MoveX - dX
+                P(I).MoveY = P(I).MoveY - dY
+
+            End If
+
+        End With
+    Next
+
+
+
+
+    '**************************
+    For I = 1 To NP
+        With P(I)
+            .X = .X + .MoveX
+            .Y = .Y + .MoveY
+        End With
+    Next
+
+
+    LINE_TESTCollisionAndStick
+    BALL_TESTCollisionAndStick
+
+
+    '*********************************************+
+    '// use previous position to compute next velocity
+    'For I = 1 To NP
+    '    With P(I)
+    '        .Vx = (.X - .OldX) * OdDT    '/ dT
+    '        .Vy = (.Y - .OldY) * OdDT    '/ dT
+    '    End With
+    'Next
